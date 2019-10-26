@@ -2,9 +2,10 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import quad
+from .utils import full_path
 
 
-class const:
+class Constants:
     G_f = 1.166e-11  # MeV^{-2}
     m_e = 0.511  # MeV
     s_w = np.sqrt(0.232)  # PDG
@@ -15,9 +16,49 @@ class const:
     mu_b = np.sqrt(4 * np.pi * alpha) / (2 * m_e)  # MeV^{-1}
 
 
-C = const()
+class XeShell:
+    # (n_electron, energy [keV])
+    shells = [(54, 34.561),
+              (52, 5.453),
+              (50, 5.107),
+              (47 ,4.786),
+              (44, 1.148),
+              (42, 1.002),
+              (39, 0.941),
+              (36, 0.689),
+              (31, 0.676),
+              (26, 0.213),
+              (24, 0.147),
+              (21, 0.145),
+              (18, 0.070),
+              (13, 0.068),
+              (8, 0.023),
+              (6, 0.013),
+              (3, 0.012)
+              ]
+    k_shell = shells[0][1]
+    outer_shell = shells[-1][1]
 
-survival_df = pd.read_csv('msw/LMA_borexino_2018.txt', sep='\t')
+    def __init__(self):
+        pass
+
+    def num_accessible(self, E):
+        if E >= self.k_shell:
+            return 54
+        elif E < self.outer_shell:
+            return 0
+        else:
+            next_shell = self.k_shell
+            for n, e in self.shells:
+                if e < E <= next_shell:
+                    return n
+            return 3
+
+
+C = Constants()
+Xe = XeShell()
+
+survival_df = pd.read_csv(full_path('data/msw/LMA_borexino_2018.txt'), sep='\t')
 nue_survival = interp1d(survival_df.x, survival_df.y, bounds_error=False,
                         fill_value=(survival_df.y.values[0], survival_df.y.values[-1]))
 
@@ -79,6 +120,24 @@ class SolarNu:
                         epsabs=1e-12, limit=200)
 
         return integral[0] * C.N_a * 3600 * 24 * 365 / 1000
+
+    def dRdE_millicharge(self, Er, q):
+
+        # so that it can handle arrays
+        if hasattr(Er, "__len__"):
+            return np.array([self.dRdE_millicharge(E, q) for E in Er])
+
+        # so convert E_r to MeV
+        Enu_min = np.sqrt(C.m_e * Er / 1000 / 2)
+
+        def xsec(E_nu):
+            if Er > max_recoil_energy(E_nu):
+                return 0
+            return nu_millicharge_diff_xsec(Er, q)
+
+        # Es = df.E[df.E>Enu_min].values
+        integral = quad(lambda x: self.flux(x) * xsec(x), Enu_min, np.inf, epsabs=1e-12, limit=200)
+        return integral[0] * C.N_a * 3600 * 24 * 365 / 1000 / 54
 
     def dRdE_BminusL(self, Er, g, M_A, m_nu=0):
         """Nu magnetic moment differential rate, in units events/N_a/keV/year"""
@@ -162,7 +221,7 @@ class SolarPP(SolarNu):
     label = 'pp'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/pp.csv')
+        df = pd.read_csv(full_path('data/flux_data/pp.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
 
 
@@ -171,7 +230,7 @@ class SolarPEP(SolarNuLine):
     label = 'pep'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/pep.csv')
+        df = pd.read_csv(full_path('data/flux_data/pep.csv'))
         self.E_peaks = df.E.values
         return df.flux.values
 
@@ -181,7 +240,7 @@ class SolarBE7(SolarNuLine):
     label = '7Be'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/be7.csv')
+        df = pd.read_csv(full_path('data/flux_data/be7.csv'))
         self.E_peaks = df.E.values
         return df.flux.values
 
@@ -191,7 +250,7 @@ class SolarB8(SolarNu):
     label = '8B'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/b8.csv')
+        df = pd.read_csv(full_path('data/flux_data/b8.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
 
 
@@ -200,7 +259,7 @@ class SolarHEP(SolarNu):
     label = 'hep'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/hep.csv')
+        df = pd.read_csv(full_path('data/flux_data/hep.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
 
 
@@ -209,7 +268,7 @@ class SolarN13(SolarNu):
     label = '13N'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/n13.csv')
+        df = pd.read_csv(full_path('data/flux_data/n13.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
 
 
@@ -218,7 +277,7 @@ class SolarO15(SolarNu):
     label = '15O'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/o15.csv')
+        df = pd.read_csv(full_path('data/flux_data/o15.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
 
 
@@ -227,8 +286,21 @@ class SolarF17(SolarNu):
     label = '17F'
 
     def load_flux(self):
-        df = pd.read_csv('flux_data/f17.csv')
+        df = pd.read_csv(full_path('data/flux_data/f17.csv'))
         return interp1d(df.E, df.flux, bounds_error=False, fill_value=0)
+
+class SolarCNO(SolarNu):
+    label = 'CNO'
+
+    def load_flux(self):
+        nu1 = SolarN13()
+        nu2 = SolarO15()
+        nu3 = SolarF17()
+
+        def f(E):
+            return nu1.flux(E) + nu2.flux(E) + nu3.flux(E)
+
+        return f
 
 
 def max_recoil_energy(Enu):
@@ -236,12 +308,11 @@ def max_recoil_energy(Enu):
 
 
 def load_solars():
-    return [SolarPP(), SolarPEP(), SolarBE7(), SolarB8(), SolarHEP(),
-            SolarN13(), SolarO15(), SolarF17()]
+    return [SolarPP(), SolarPEP(), SolarBE7(), SolarB8(), SolarHEP(), SolarCNO()]
 
 
 def SM_diff_xsec(Er_keV, Enu, nu='e'):
-    """returns Standard Model differential cross section in units of cm^2/MeV"""
+    """returns Standard Model differential cross section in units of cm^2/keV"""
     # break into a few parts for readability
     Er = Er_keV / 1000
     a = C.G_f**2 * C.m_e / (2*np.pi*Enu**2)
@@ -263,6 +334,15 @@ def numu_diff_xsec(Er_keV, Enu, mu):
     # mu is in units of bohr magnetons
     si_corr = (C.hbar * C.c) ** 2
     return (mu * C.mu_b) ** 2 * C.alpha * (1 / Er - 1 / Enu) * si_corr
+
+
+def nu_millicharge_diff_xsec(Er_keV, q):
+    """Doesn't depend on Enu? See https://arxiv.org/pdf/hep-ph/0612203.pdf
+    Returns xsec in cm^2/MeV/electron"""
+
+    Er = Er_keV / 1000
+    si_corr = (C.hbar * C.c) ** 2
+    return 2*np.pi*C.alpha * (1/(C.m_e * Er**2)) * q**2 * si_corr
 
 
 def BminusL_diff_xsec(Er_keV, Enu, g, M_A, m_nu=0):
